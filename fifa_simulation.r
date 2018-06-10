@@ -83,11 +83,11 @@ for (j in seq(simulations)){
   
   # calculate points
   games$homepoints <- case_when(games$homegoals>games$awaygoals ~ 3,
-                                    games$homegoals==games$awaygoals ~ 1,
-                                    games$homegoals<games$awaygoals ~ 0)
+                                games$homegoals==games$awaygoals ~ 1,
+                                games$homegoals<games$awaygoals ~ 0)
   games$awaypoints <- case_when(games$homegoals>games$awaygoals ~ 0,
-                                    games$homegoals==games$awaygoals ~ 1,
-                                    games$homegoals<games$awaygoals ~ 3)
+                                games$homegoals==games$awaygoals ~ 1,
+                                games$homegoals<games$awaygoals ~ 3)
   
   # calculate group standing
   ho <- select(games,group, home, homepoints, homegoals, awaygoals) %>% rename(team = home, points = homepoints, scored = homegoals, against = awaygoals)
@@ -198,7 +198,7 @@ for (j in seq(simulations)){
       d <- sample(c(t1,t2,t3,t4),2)
       winner <- d[1]
       runnerup <- d[2]
-      }
+    }
     
     # done calculating ranking, store results
     result_simulations$winner[result_simulations$group == groupi & result_simulations$simulation == j] <- winner
