@@ -3,10 +3,6 @@ load("games.rdata")
 load("odds.list.rdata")
 load("teams_groups.rdata")
 
-games <- games %>% 
-  select(-link.winner, -link.correct_score) %>% 
-  mutate(homepoints = 0, awaypoints = 0, homegoals = 0, awaygoals = 0)
-
 groups <- unique(teams_groups$group)
 
 getal <- function(x){as.numeric(as.character(x))}
@@ -18,21 +14,14 @@ result_simulations <- tibble(simulation = rep(seq(simulations),each = length(gro
                              winner = "", 
                              runnerup= "")
 
-knockout <- tibble(simulation = rep(seq(simulations), each = 8),
-                   nr = rep(c(49:56),simulations), 
-                   home = "", away = "")
+nextrounds <- tibble(simulation = rep(seq(simulations), each = (8+4+2+1)),
+                     nr = rep(c(49:63),simulations),
+                     home = "", away = "")
 
-quarters <- tibble(simulation = rep(seq(simulations), each = 4),
-                   nr = rep(c(57:60),simulations), 
-                   home = "", away = "")
-
-semis <- tibble(simulation = rep(seq(simulations), each = 2),
-                nr = rep(c(61:62),simulations), 
-                home = "", away = "")
-
-final <- tibble(simulation = rep(seq(simulations), each = 1),
-                nr = rep(c(63),simulations), 
-                home = "", away = "")
+knockout <- filter(nextrounds, nr %in% c(49:56))
+quarters <- filter(nextrounds, nr %in% c(57:60))
+semis <- filter(nextrounds, nr %in% c(61:62))
+final <- filter(nextrounds, nr ==63)
 
 # function that calculates probability of team proceeding -----------------------------------------------------------------------
 get_group <- function(grp, dataset = result_simulations){
@@ -312,6 +301,17 @@ final %>%
   summarize(count = n(), percent = count/simulations) %>% 
   arrange(desc(percent))
 
+# most likely second round ------------------------------------------------
+x <- final %>% group_by(simulation) %>% summarize(teamA = paste(home,collapse=","), teamB = paste(away,collapse=",")) %>% group_by(teamA,teamB) %>% summarize(count = n()) %>% arrange(desc(count))
+print(x[1,"teamB"])
+
 # get probabilities -------------------------------------------------------
+load(file="knockout.rdata")
 get_group("G")
-get2round(final,"Belgium")
+get2round(final,"Brazil")
+
+africa <- c("Morocco","Tunisia","Senegal","Nigeria","Egypt")
+semis$africa <- case_when(semis$home %in% africa ~ 1,
+                          semis$home %in% africa ~ 1,
+                          TRUE ~ 0)
+sum(semis$africa)/(nrow(semis)/2)

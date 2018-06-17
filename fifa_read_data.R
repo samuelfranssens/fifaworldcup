@@ -56,7 +56,7 @@ games <- tribble(~home, ~away, ~group,
 groups <- unique(games$group)
 betting_companies <- c("bet365","skybet","ladbrokes","williamhill","marathonbet","betfair","sunbets","paddypower","unibet",
                   "coral","betfred","boylesports","blacktype","betstars","betway","betbright","10bet","sportingbet",
-                  "198bet","888","betvictor","sportpesa","spreadex","betfairexchange","betdaq","matchbook","smarkets")
+                  "188bet","888","betvictor","sportpesa","spreadex","royalpanda","betfairexchange","betdaq","matchbook","smarkets")
 
 link.pre <- "https://www.oddschecker.com/football/world-cup/"
 
@@ -144,6 +144,10 @@ for (i in seq(nrow(games))){
   
 }
 
+games <- games %>% 
+  select(-link.winner) %>% 
+  mutate(homepoints = 0, awaypoints = 0, homegoals = 0, awaygoals = 0)
+
 save(games, file = "games.rdata")
 
 # scrape CORRECT SCORE data -----------------------------------------------
@@ -175,22 +179,27 @@ for (i in seq(nrow(games))){
   # CORRECT SCORE: Tidy odds
   L <- length(odds.cs1)/length(possible.scores)
   odds.cs <- tibble(score = rep(possible.scores,each = L), odds = odds.cs1, bc = rep(betting_companies,length(possible.scores))) %>% 
+    filter(score!="Any Other Score") %>% 
     separate(odds, c("voor","tegen"), sep = "/", fill="right") %>% 
     mutate(tegen=replace(tegen, is.na(tegen), 1), original.odds = getal(tegen)/(getal(voor)+getal(tegen))) %>% 
+    filter(voor!="" & tegen!="") %>% 
     arrange(bc) %>% 
-    filter(!is.na(original.odds)) # Sometimes there are no odds for certain bet companies
-  
-  # CORRECT SCORE: Check, because sometimes there are mistakes
-  check <- odds.cs %>% 
-    group_by(score) %>% 
-    summarize(var = var(original.odds)) %>% 
-    filter(!is.na(var)) %>% 
-    arrange(desc(var))
-  remove <- check %>% 
-    filter(var > mean(var)+2*sd(var)) %>% 
-    select(score)
-  odds.cs <- odds.cs %>% 
-    filter(score %nin% remove$score)
+    mutate(ochome = case_when(grepl(awayteam,score) ~ awayteam, # oc has listed away team first
+                              TRUE ~ hometeam),
+           ocaway = case_when(grepl(awayteam,score) ~ hometeam, # oc has listed away team first
+                              TRUE ~ awayteam)) %>% 
+    mutate(score = gsub(paste0(hometeam," "),"",score)) %>% # clean up score variable
+    mutate(score = gsub(paste0(awayteam," "),"",score)) %>% # clean up score variable
+    mutate(score = gsub(paste0("Draw"," "),"",score)) %>%   # clean up score variable
+    separate(score, c("oc.homegoals", "oc.awaygoals"), sep="-") %>% 
+    mutate(group = grp, hometeam = hometeam, awayteam = awayteam,
+           homegoals = case_when(ochome == hometeam ~ oc.homegoals,
+                                 ochome == awayteam ~ oc.awaygoals),
+           awaygoals = case_when(ochome == hometeam ~ oc.awaygoals,
+                                 ochome == awayteam ~ oc.homegoals)) %>%  # use the official home & away teams, not the OC ones
+    select(-oc.homegoals, -oc.awaygoals, -ochome, - ocaway) %>% 
+    mutate(score = paste0(homegoals,"-",awaygoals)) %>% 
+    filter(original.odds<.50) # sometimes there are mistakes
   
   # Overround:
   # quoted odds = odds * delta + 1
@@ -204,10 +213,12 @@ for (i in seq(nrow(games))){
   odds.cs.final <- odds.cs %>% 
     join(overround.cs) %>% 
     mutate(true.odds = original.odds - OR) %>% 
-    select(score, bc, true.odds) %>% 
-    filter(true.odds>0 & score!="Any Other Score") %>% # Sometimes there are negative odds to due overround removal. Any other score isn't very useful.
+    # select(score, bc, true.odds) %>% 
+    filter(true.odds>0) %>% # Sometimes there are negative odds to due overround removal. Any other score isn't very useful.
     group_by(score) %>% 
-    summarize(mean_odds = mean(true.odds)) %>% # averaged across betting companies
+    summarize(group = first(group), hometeam = first(hometeam), awayteam = first(awayteam),
+              homegoals = first(homegoals), awaygoals = first(awaygoals),
+              mean_odds = mean(true.odds)) %>% # averaged across betting companies
     arrange(desc(mean_odds)) %>% 
     mutate(cumulative = cumsum(mean_odds)) %>% # Cumulative is needed to make sure the odds add to 1
     filter(cumulative<=1) # Make sure that the probabilities don't add to more than 1
@@ -215,35 +226,14 @@ for (i in seq(nrow(games))){
   # CORRECT SCORE: Make sure the percentages sum to one
   odds.cs.final$mean_odds[1] <- odds.cs.final$mean_odds[1] + (1-odds.cs.final$cumulative[nrow(odds.cs.final)]) # add a tiny bit to the most likely score
   
-  # CORRECT SCORE: transform the scores vector into something useful
-  odds.cs.final <- odds.cs.final %>% 
-    select(-cumulative) %>% 
-    mutate(homegoals = 0, awaygoals = 0, ochome=hometeam, ocaway=awayteam) # initialize some columns. 
-  
-  # CORRECT SCORE: Ochome & ocaway: what does oddschecker list as home and away team? We'll correct this where necessary:
-  odds.cs.final$ochome[grepl(awayteam,odds.cs.final$score)] <- awayteam # adjust if oc has listed away team first
-  odds.cs.final$ocaway[grepl(awayteam,odds.cs.final$score)] <- hometeam # adjust if oc has listed away team first
-  
-  # CORRECT SCORE: Get the scores
-  odds.cs.final$score <- gsub(paste0(hometeam," "),"",odds.cs.final$score) # clean up the score variable
-  odds.cs.final$score <- gsub(paste0(awayteam," "),"",odds.cs.final$score)    
-  odds.cs.final$score <- gsub("Draw ","",odds.cs.final$score)
-  odds.cs.final <- odds.cs.final %>% # separate the score variable
-    separate(score, c("oc.homegoals", "oc.awaygoals"), sep="-") %>% 
-    mutate(group = grp, hometeam = hometeam, awayteam = awayteam,
-           homegoals = case_when(ochome == hometeam ~ oc.homegoals,
-                                 ochome == awayteam ~ oc.awaygoals),
-           awaygoals = case_when(ochome == hometeam ~ oc.awaygoals,
-                                 ochome == awayteam ~ oc.homegoals)) %>%  # use the official home & away teams, not the OC ones
-    select(group, hometeam, awayteam, homegoals, awaygoals, mean_odds, -oc.homegoals, -oc.awaygoals, -ochome, - ocaway)
-  
   # CORRECT SCORE: Store data in a list
-  odds.cs.final
+  odds.cs.final <- odds.cs.final %>% select(-cumulative)
   odds.list[[i]] <- odds.cs.final
 }
 
 names(odds.list) <- paste(games$home,games$away,sep=" - ") # name the list with odds on correct scores
 save(odds.list, file = "odds.list.rdata")
+games <- select(games, - link.correct_score)
 
 # data frame with most likely score per game ------------------------------
 most.likely.scores <- odds.list[[1]][1,]
